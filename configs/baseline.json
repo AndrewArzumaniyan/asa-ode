@@ -1,0 +1,42 @@
+{
+  "seed": 42,
+  "device": "auto",
+  "num_workers": 0,
+  "pin_memory": true,
+  "paths": {
+    "data_root": "./data/physionet2012/set-a",
+    "cache_path": "./data/cache/physionet2012_cache.pt",
+    "output_dir": "./outputs/baseline"
+  },
+  "data": {
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "feature_names": null,
+    "min_timepoints": 2
+  },
+  "model": {
+    "latent_dim": 32,
+    "encoder_ode_hidden_dim": 64,
+    "dynamics_hidden_dim": 64,
+    "decoder_hidden_dim": 64
+  },
+  "solver": {
+    "method": "dopri5",
+    "rtol": 0.001,
+    "atol": 0.0001,
+    "use_adjoint": true
+  },
+  "train": {
+    "batch_size": 16,
+    "epochs": 50,
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "grad_clip_norm": 1.0,
+    "early_stopping_patience": 10,
+    "log_every_steps": 20
+  },
+  "eval": {
+    "batch_size": 16
+  }
+}
