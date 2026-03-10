@@ -1,42 +1,42 @@
-# Модуль Models
+# Models Module
 
-Здесь находится реализация baseline Neural ODE без attention для нерегулярных временных рядов.
+This folder contains the baseline Neural ODE implementation (without attention) for irregular time-series interpolation.
 
-## Файл
+## File
 
-- `baseline_ode.py` — все компоненты модели и верхнеуровневый класс `BaselineNeuralODE`.
+- `baseline_ode.py` — all model components and the top-level `BaselineNeuralODE` class.
 
-## Главная задача модуля
+## Module Goal
 
-По контексту наблюдений пациента с нерегулярными отметками времени:
+Given patient context observations at irregular timestamps:
 
 $$
 \{(t_i, x_i, m_i)\}_{i=1}^{T_c}, \quad x_i \in \mathbb{R}^{N}, \ m_i \in \{0,1\}^{N},
 $$
 
-получить прогноз признаков на целевых временах:
+predict feature values at target timestamps:
 
 $$
 \{\hat{x}_j\}_{j=1}^{T_t}, \quad \hat{x}_j \in \mathbb{R}^{N}.
 $$
 
-Обозначения:
+Notation:
 
-- $N$ — число фичей.
-- $M$ — латентная размерность одной фичи.
-- Для одного пациента латентное состояние имеет форму $(N, M)$.
+- $N$ — number of features.
+- $M$ — latent dimension per feature.
+- For a single patient, latent state shape is $(N, M)$.
 
-## Общий математический конвейер
+## Overall Mathematical Pipeline
 
-Для одного пациента:
+For one patient:
 
-1. Кодирование контекста (backward ODE-RNN):
+1. Context encoding (backward ODE-RNN):
 
 $$
 z_0 = \text{Encoder}(t_{1:T_c}, x_{1:T_c}, m_{1:T_c}) \in \mathbb{R}^{N \times M}.
 $$
 
-2. Интеграция латентной динамики на целевых временах:
+2. Latent dynamics integration at target timestamps:
 
 $$
 \frac{dz}{dt} = f_\theta(z), \quad z(t_0)=z_0,
@@ -46,154 +46,154 @@ $$
 z_{1:T_t} = \text{ODESolve}(f_\theta, z_0, t^{\text{target}}_{1:T_t}).
 $$
 
-3. Декодирование в пространство наблюдений:
+3. Decoding to observation space:
 
 $$
 \hat{x}_{1:T_t} = d_\phi(z_{1:T_t}), \quad \hat{x}_{1:T_t} \in \mathbb{R}^{T_t \times N}.
 $$
 
-## Компоненты и ответственность классов
+## Components and Class Responsibilities
 
 ### `resolve_odeint(use_adjoint: bool)`
 
-Выбирает backend интегратора из `torchdiffeq`:
+Selects the integration backend from `torchdiffeq`:
 
-- `odeint_adjoint`, если `use_adjoint=True`.
-- `odeint`, если `use_adjoint=False`.
+- `odeint_adjoint` if `use_adjoint=True`.
+- `odeint` if `use_adjoint=False`.
 
-Используется и в энкодере, и в латентной динамике.
+Used both in the encoder and in latent dynamics integration.
 
 ### `EncoderODEFunc`
 
-Непрерывная динамика скрытого состояния между двумя наблюдениями в энкодере.
+Continuous hidden-state dynamics between two observation times inside the encoder.
 
-Формула:
+Formula:
 
 $$
 \frac{dh}{dt} = f_{enc}(h),
 $$
 
-где $f_{enc}$ — MLP:
+where $f_{enc}$ is an MLP:
 
 $$
 f_{enc}(h)=W_2\,\tanh(W_1 h + b_1)+b_2.
 $$
 
-Вход: `(N, M)`  
-Выход: `(N, M)`
+Input: `(N, M)`  
+Output: `(N, M)`
 
 ### `FeaturewiseODERNNEncoder`
 
-Кодирует контекст в `z0` через backward-проход по времени.
+Encodes context into `z0` by processing timestamps backward.
 
-Для шагов в обратном порядке $k=1..T_c$:
+For reversed steps $k=1..T_c$:
 
-1. Непрерывный переход по временному разрыву:
+1. Continuous transition over the time gap:
 
 $$
 h \leftarrow \text{ODESolve}(f_{enc}, h, [0, \Delta t_k])
 $$
 
-2. Дискретное обновление в точке наблюдения через GRU:
+2. Discrete update at observation using GRU:
 
 $$
 \tilde{h} = \text{GRU}(x_k, h)
 $$
 
-3. Обновление с маской наблюдения:
+3. Masked update:
 
 $$
 h \leftarrow m_k \odot \tilde{h} + (1-m_k) \odot h
 $$
 
-где $m_k \in \{0,1\}^{N \times 1}$.
+where $m_k \in \{0,1\}^{N \times 1}$.
 
-Практический момент реализации:
+Implementation detail:
 
-- ODE-связанные тензоры приводятся к `float32` для совместимости с MPS.
+- ODE-related tensors are explicitly cast to `float32` for MPS compatibility.
 
-Входы:
+Inputs:
 
 - `context_times`: `(T_c,)`
 - `context_values`: `(T_c, N)`
 - `context_mask`: `(T_c, N)`
 
-Выход:
+Output:
 
 - `z0`: `(N, M)`
 
 ### `LatentDynamicsFunc`
 
-Определяет baseline-динамику без внимания.
+Defines baseline latent dynamics without attention.
 
 $$
 \frac{dz}{dt} = f_{dyn}(z),
 $$
 
-где $f_{dyn}$ — shared MLP по фичам:
+where $f_{dyn}$ is a shared feature-wise MLP:
 
 $$
 f_{dyn}(z)=W_2\,\tanh(W_1 z + b_1)+b_2.
 $$
 
-Межфичевое attention здесь отсутствует.
+No explicit inter-feature attention is used in this baseline.
 
 ### `FeaturewiseDecoder`
 
-Преобразует латентные векторы обратно в скалярные наблюдения.
+Maps latent vectors back to scalar feature values.
 
 $$
 \hat{x} = d_\phi(z), \quad d_\phi: \mathbb{R}^{M} \to \mathbb{R}.
 $$
 
-Применяется независимо к каждой фиче и каждому времени.
+Applied independently to each feature and each time step.
 
-Вход: `(..., N, M)`  
-Выход: `(..., N)`
+Input: `(..., N, M)`  
+Output: `(..., N)`
 
 ### `BaselineNeuralODE`
 
-Верхний класс модели, объединяющий энкодер, динамику и декодер.
+Top-level model class combining encoder, latent dynamics, and decoder.
 
-Основные методы:
+Main methods:
 
-- `forward_single(...)` — обработка одного пациента.
-- `forward_batch(batch, device)` — обработка padded-батча.
+- `forward_single(...)` — processes one patient.
+- `forward_batch(batch, device)` — processes a padded batch.
 
-#### Последовательность `forward_single`
+#### `forward_single` sequence
 
-1. Приведение `context_*` и `target_times` к ODE dtype (`float32`).
-2. Вычисление `z0 = encoder(...)`.
-3. Интеграция латентной ODE на целевых временах.
-4. Декодирование траектории в `preds`.
+1. Cast `context_*` and `target_times` to ODE dtype (`float32`).
+2. Compute `z0 = encoder(...)`.
+3. Integrate latent ODE at target times.
+4. Decode trajectory to predictions.
 
-#### Последовательность `forward_batch`
+#### `forward_batch` sequence
 
-1. Перенос батча на выбранный девайс.
-2. Итерация по пациентам в батче с учетом `context_lengths/target_lengths`.
-3. Вызов `forward_single` для каждого пациента.
-4. Запись результата в общий padded-тензор предсказаний `(B, T_t_max, N)`.
+1. Move batch tensors to selected device.
+2. Iterate over patients using `context_lengths/target_lengths`.
+3. Call `forward_single` per patient.
+4. Write outputs into padded prediction tensor `(B, T_t_max, N)`.
 
-## Формы тензоров
+## Tensor Shapes
 
 - $B$ — batch size
-- $N$ — число фичей
-- $M$ — latent dim на фичу
-- $T_c$ — длина контекста
-- $T_t$ — длина таргета
+- $N$ — number of features
+- $M$ — latent dimension per feature
+- $T_c$ — context length
+- $T_t$ — target length
 
-Padded-входы:
+Padded inputs:
 
 - `context_times`: `(B, T_c_max)`
 - `context_values`: `(B, T_c_max, N)`
 - `context_mask`: `(B, T_c_max, N)`
 - `target_times`: `(B, T_t_max)`
 
-Выход:
+Output:
 
 - `preds`: `(B, T_t_max, N)`
 
-## Почему это baseline
+## Why This Is the Baseline
 
-Этот модуль специально реализован без attention-механизма в `f_\theta`.  
-Каждая фича развивается через общую динамическую функцию, но без явных межфичевых весов внимания.
+This module intentionally excludes attention in $f_\theta$.  
+Each feature evolves through a shared dynamics function, but without explicit pairwise attention weights.

@@ -1,126 +1,126 @@
-# Модуль Training
+# Training Module
 
-Здесь реализованы loss, циклы обучения/валидации/теста, сбор метрик, ранняя остановка и сохранение checkpoint/history.
+This folder contains loss computation, train/validation/test loops, metric aggregation, early stopping, and checkpoint/history persistence.
 
-## Файлы
+## Files
 
-- `losses.py` — функции потерь.
-- `engine.py` — train/eval циклы и управляющая логика обучения.
+- `losses.py` — loss functions.
+- `engine.py` — train/eval loops and training orchestration.
 
-## Целевая функция
+## Objective Function
 
-Для предсказаний $\hat{y}$, таргета $y$ и маски наблюдаемости $m$:
+For predictions $\hat{y}$, targets $y$, and observation mask $m$:
 
 $$
 \mathcal{L}_{\text{masked MSE}} = \frac{\sum (\hat{y}-y)^2 \odot m}{\max\left(\sum m, 1\right)}.
 $$
 
-В loss участвуют только реально наблюденные значения (`mask==1`).
+Only observed entries (`mask==1`) contribute to the loss.
 
 ## `losses.py`
 
 ### `masked_mse(pred, target, mask)`
 
-Что делает:
+Responsibilities:
 
-1. Считает поэлементный квадрат ошибки.
-2. Умножает на маску наблюдений.
-3. Нормирует на число наблюденных элементов.
+1. Compute element-wise squared error.
+2. Apply observation mask.
+3. Normalize by the number of observed entries.
 
-Типичная форма входов: `(B, T_t_max, N)`.
+Typical input shape: `(B, T_t_max, N)`.
 
-Выход: скалярный loss.
+Output: scalar loss tensor.
 
 ## `engine.py`
 
-## Dataclass-структуры
+## Dataclasses
 
 ### `LoopMetrics`
 
-Агрегированные метрики одного прохода по dataloader:
+Aggregated metrics for one full dataloader pass:
 
-- `loss` — средний loss по шагам.
-- `step_time_sec` — среднее время одного шага.
-- `peak_memory_mb` — пиковая память ускорителя (если поддерживается backend).
+- `loss` — mean loss over steps.
+- `step_time_sec` — average wall-clock step time.
+- `peak_memory_mb` — peak accelerator memory (if backend supports it).
 
 ### `FitSummary`
 
-Итог обучения:
+Training result summary:
 
 - `best_val_loss`
 - `best_epoch`
 - `checkpoint_path`
 
-## Вспомогательная функция
+## Helper Function
 
 ### `_move_targets(batch, device)`
 
-Переносит на девайс и приводит к `float32`:
+Moves tensors to target device and casts to `float32`:
 
 - `target_values`
 - `target_mask`
 
-Это гарантирует согласованность dtype с предсказаниями модели.
+This keeps dtype/device aligned with model outputs.
 
-## Основные циклы
+## Main Loops
 
 ### `train_one_epoch(...)`
 
-Последовательность на каждом batch:
+Per-batch sequence:
 
 1. `optimizer.zero_grad(set_to_none=True)`
 2. `pred = model.forward_batch(...)`
 3. `loss = masked_mse(pred, target_values, target_mask)`
 4. `loss.backward()`
-5. Опциональный gradient clipping:
+5. Optional gradient clipping:
 
 $$
 g \leftarrow g \cdot \min\left(1, \frac{c}{\|g\|_2}\right),
 $$
 
-где $c$ — `grad_clip_norm`.
+where $c$ is `grad_clip_norm`.
 
 6. `optimizer.step()`
-7. Обновление tqdm и накопление статистик.
+7. Update tqdm and aggregate metrics.
 
-Выход: `LoopMetrics` для train-сплита.
+Returns `LoopMetrics` for the training split.
 
 ### `evaluate_model(...)`
 
-Повторяет data flow train-цикла, но:
+Same data flow as training loop, but:
 
-- работает под `@torch.no_grad()`;
-- не вызывает backward;
-- не обновляет optimizer.
+- runs under `@torch.no_grad()`;
+- no backward pass;
+- no optimizer update.
 
-Выход: `LoopMetrics` для val/test.
+Returns `LoopMetrics` for validation/test.
 
 ### `fit_model(...)`
 
-Оркестратор обучения по эпохам.
+Top-level epoch orchestration.
 
-На каждой эпохе:
+Per epoch:
 
-1. `train_one_epoch`.
-2. `evaluate_model` на validation.
-3. Добавление записи в `history`.
-4. Если `val_loss` улучшился:
-   - сохраняется `best_model.pt`;
-   - patience сбрасывается.
-5. Если не улучшился:
-   - patience уменьшается;
-   - при `patience == 0` срабатывает early stopping.
+1. Run `train_one_epoch`.
+2. Run `evaluate_model` on validation split.
+3. Append epoch record to `history`.
+4. If `val_loss` improves:
+   - save `best_model.pt`;
+   - reset patience counter.
+5. If `val_loss` does not improve:
+   - decrement patience;
+   - trigger early stopping when `patience == 0`.
 
-После цикла:
+After training loop:
 
-- сохраняется `history.json`;
-- возвращается `FitSummary`.
+- save `history.json`;
+- return `FitSummary`.
 
-## Формат артефактов
+## Artifact Formats
 
 ### `best_model.pt`
 
-Содержит:
+Stored keys:
 
 - `epoch`
 - `model_state_dict`
@@ -129,7 +129,7 @@ $$
 
 ### `history.json`
 
-Список словарей по эпохам:
+List of epoch records:
 
 - `epoch`
 - `train_loss`
@@ -138,19 +138,19 @@ $$
 - `val_step_time_sec`
 - `peak_memory_mb`
 
-## Метрики времени и памяти
+## Time and Memory Metrics
 
-Используются runtime-хелперы:
+Runtime helpers are used:
 
-- `reset_peak_memory(device)` — перед циклом.
-- `get_peak_memory_mb(device)` — после цикла.
+- `reset_peak_memory(device)` before loop execution.
+- `get_peak_memory_mb(device)` after loop execution.
 
-Так получается единый интерфейс отчетности для CUDA/MPS/CPU.
+This provides a consistent metric interface across CUDA/MPS/CPU.
 
-## Последовательность использования в `scripts/train.py`
+## Usage Order from `scripts/train.py`
 
-1. Строятся модель и optimizer.
-2. Запускается `fit_model(...)`.
-3. Загружается лучший checkpoint.
-4. Выполняется `evaluate_model(...)` на test.
-5. Пишется итоговый `summary.json`.
+1. Build model and optimizer.
+2. Run `fit_model(...)`.
+3. Load best checkpoint.
+4. Run `evaluate_model(...)` on test split.
+5. Save final `summary.json`.
