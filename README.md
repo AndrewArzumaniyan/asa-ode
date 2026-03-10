@@ -4,12 +4,32 @@ Baseline Neural ODE (without attention) for irregular time series interpolation 
 
 ## Environment
 
-Use your conda env:
+Use your conda env and install PyTorch explicitly for your platform first:
 
 ```bash
 conda activate py3.11_asa_ode
+```
+
+### macOS (Apple Silicon, MPS)
+```bash
+pip install torch torchvision torchaudio
 pip install -r requirements.txt
 ```
+
+### Linux/Windows with NVIDIA GPU (CUDA)
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install -r requirements.txt
+```
+
+### CPU-only
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+```
+
+PyTorch wheel selection is not based on runtime GPU availability, so explicit install is required.
+Use the official selector for the exact command: https://docs.pytorch.org/get-started/locally/
 
 ## Expected data format
 
