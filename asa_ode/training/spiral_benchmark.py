@@ -13,6 +13,7 @@ from asa_ode.models.spiral_benchmarks import (
     gaussian_nll,
     kl_standard_normal,
     rmse_metric,
+    trajectory_gaussian_nll,
 )
 
 
@@ -59,7 +60,7 @@ def evaluate_latent_ode(
 
     logvar_val = math.log(float(obs_noise_std) ** 2)
     recon_logvar = torch.full_like(out["x_pred"], fill_value=logvar_val)
-    recon_nll = gaussian_nll(batch.full_values.permute(1, 0, 2), out["x_pred"], recon_logvar)
+    recon_nll = trajectory_gaussian_nll(batch.full_values.permute(1, 0, 2), out["x_pred"], recon_logvar)
     kl = kl_standard_normal(out["mu"], out["logvar"])
 
     return {
@@ -121,7 +122,7 @@ def train_latent_ode_fullbatch(
         optimizer.zero_grad(set_to_none=True)
 
         out = model(observed_values=batch.observed_values, pred_times=batch.observed_times, sample=True)
-        recon_nll = gaussian_nll(recon_target, out["x_pred"], recon_logvar)
+        recon_nll = trajectory_gaussian_nll(recon_target, out["x_pred"], recon_logvar)
         kl = kl_standard_normal(out["mu"], out["logvar"])
         if kl_anneal_iters > 0:
             beta = min(1.0, iteration / float(kl_anneal_iters))

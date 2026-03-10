@@ -30,6 +30,15 @@ def gaussian_nll(x: torch.Tensor, mean: torch.Tensor, logvar: torch.Tensor) -> t
     return -ll.mean()
 
 
+def trajectory_gaussian_nll(x: torch.Tensor, mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+    """Computes trajectory NLL by summing over time and averaging over batch."""
+    ll = log_normal_pdf(x, mean, logvar).sum(dim=-1)
+    if ll.ndim < 2:
+        raise ValueError("trajectory_gaussian_nll expects at least [time, batch] leading dimensions.")
+    ll_per_batch = ll.sum(dim=0)
+    return -ll_per_batch.mean()
+
+
 def kl_standard_normal(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
     """Computes KL divergence from N(mu, sigma) to N(0, I), averaged over batch."""
     kl = 0.5 * (torch.exp(logvar) + mu.pow(2) - 1.0 - logvar).sum(dim=-1)

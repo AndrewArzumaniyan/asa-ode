@@ -5,6 +5,7 @@ from asa_ode.models.spiral_benchmarks import (
     gaussian_nll,
     kl_standard_normal,
     rmse_metric,
+    trajectory_gaussian_nll,
 )
 
 __all__ = [
@@ -12,6 +13,7 @@ __all__ = [
     "LatentODEVAE",
     "GRUBaseline",
     "gaussian_nll",
+    "trajectory_gaussian_nll",
     "kl_standard_normal",
     "rmse_metric",
 ]
