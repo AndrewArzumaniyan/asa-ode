@@ -51,6 +51,7 @@ def evaluate_latent_ode(
     model: LatentODEVAE,
     batch: SpiralPreparedBatch,
     obs_noise_std: float = 0.3,
+    return_predictions: bool = True,
 ) -> dict[str, torch.Tensor | float]:
     """Evaluates Latent ODE on full trajectories and returns RMSE and predictions."""
     model.eval()
@@ -63,31 +64,47 @@ def evaluate_latent_ode(
     recon_nll = trajectory_gaussian_nll(batch.full_values.permute(1, 0, 2), out["x_pred"], recon_logvar)
     kl = kl_standard_normal(out["mu"], out["logvar"])
 
-    return {
+    result: dict[str, torch.Tensor | float] = {
         "rmse": float(rmse.item()),
-        "pred_full": pred_full.detach().cpu(),
-        "mu": out["mu"].detach().cpu(),
-        "logvar": out["logvar"].detach().cpu(),
-        "z_traj": out["z_traj"].detach().cpu(),
         "recon_nll": float(recon_nll.item()),
         "kl": float(kl.item()),
     }
+    if return_predictions:
+        result["pred_full"] = pred_full.detach().cpu()
+        result["mu"] = out["mu"].detach().cpu()
+        result["logvar"] = out["logvar"].detach().cpu()
+        result["z_traj"] = out["z_traj"].detach().cpu()
+    return result
 
 
 @torch.no_grad()
 def evaluate_rnn(
     model: GRUBaseline,
     batch: SpiralPreparedBatch,
+    mode: str = "autoregressive",
+    return_predictions: bool = True,
 ) -> dict[str, torch.Tensor | float]:
     """Evaluates RNN baseline rollout on full trajectories and returns RMSE and predictions."""
     model.eval()
-    pred_full = model.rollout_full(
-        observed_values=batch.observed_values,
-        observed_indices=batch.observed_indices,
-        full_times=batch.full_times,
-    )
+    if mode == "autoregressive":
+        pred_full = model.rollout_autoregressive(
+            observed_values=batch.observed_values,
+            observed_indices=batch.observed_indices,
+            full_times=batch.full_times,
+        )
+    elif mode == "anchored":
+        pred_full = model.rollout_full(
+            observed_values=batch.observed_values,
+            observed_indices=batch.observed_indices,
+            full_times=batch.full_times,
+        )
+    else:
+        raise ValueError("mode must be one of: 'autoregressive', 'anchored'")
     rmse = rmse_metric(pred_full, batch.full_values)
-    return {"rmse": float(rmse.item()), "pred_full": pred_full.detach().cpu()}
+    result: dict[str, torch.Tensor | float] = {"rmse": float(rmse.item())}
+    if return_predictions:
+        result["pred_full"] = pred_full.detach().cpu()
+    return result
 
 
 def train_latent_ode_fullbatch(
@@ -100,6 +117,7 @@ def train_latent_ode_fullbatch(
     kl_anneal_iters: int = 500,
     grad_clip_norm: float = 0.0,
     desc: str = "Latent ODE",
+    eval_first_iter: bool = False,
 ) -> dict[str, object]:
     """Trains Latent ODE VAE on full-batch spiral observations."""
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -135,8 +153,17 @@ def train_latent_ode_fullbatch(
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
 
-        if eval_every > 0 and (iteration == 1 or iteration % eval_every == 0 or iteration == n_iters):
-            rmse_value = evaluate_latent_ode(model, batch, obs_noise_std=obs_noise_std)["rmse"]
+        should_eval = iteration == n_iters or (eval_every > 0 and iteration % eval_every == 0)
+        if eval_first_iter and iteration == 1:
+            should_eval = True
+
+        if should_eval:
+            rmse_value = evaluate_latent_ode(
+                model,
+                batch,
+                obs_noise_std=obs_noise_std,
+                return_predictions=False,
+            )["rmse"]
         else:
             rmse_value = history["rmse"][-1] if history["rmse"] else float("nan")
 
@@ -148,7 +175,7 @@ def train_latent_ode_fullbatch(
         history["rmse"].append(float(rmse_value))
         progress.set_postfix(loss=f"{loss.item():.4f}", rmse=f"{rmse_value:.4f}")
 
-    final_eval = evaluate_latent_ode(model, batch, obs_noise_std=obs_noise_std)
+    final_eval = evaluate_latent_ode(model, batch, obs_noise_std=obs_noise_std, return_predictions=True)
     return {"history": history, "eval": final_eval}
 
 
@@ -160,10 +187,12 @@ def train_rnn_fullbatch(
     obs_noise_std: float = 0.3,
     eval_every: int = 50,
     use_gaussian_nll: bool = True,
+    objective: str = "full_rollout",
     grad_clip_norm: float = 0.0,
     desc: str = "RNN",
+    eval_first_iter: bool = False,
 ) -> dict[str, object]:
-    """Trains GRU baseline on one-step observed prediction objective."""
+    """Trains GRU baseline with configurable objective over observed or full trajectories."""
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     logvar_val = math.log(float(obs_noise_std) ** 2)
 
@@ -174,24 +203,41 @@ def train_rnn_fullbatch(
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        pred_next, target_next = model.predict_next_observed(
-            observed_values=batch.observed_values,
-            observed_times=batch.observed_times,
-        )
-
-        if use_gaussian_nll:
-            step_logvar = torch.full_like(pred_next, fill_value=logvar_val)
-            loss = gaussian_nll(target_next, pred_next, step_logvar)
+        if objective == "next_observed":
+            pred_next, target_next = model.predict_next_observed(
+                observed_values=batch.observed_values,
+                observed_times=batch.observed_times,
+            )
+            if use_gaussian_nll:
+                step_logvar = torch.full_like(pred_next, fill_value=logvar_val)
+                loss = gaussian_nll(target_next, pred_next, step_logvar)
+            else:
+                loss = torch.mean((pred_next - target_next).pow(2))
+        elif objective == "full_rollout":
+            pred_full = model.rollout_autoregressive(
+                observed_values=batch.observed_values,
+                observed_indices=batch.observed_indices,
+                full_times=batch.full_times,
+            )
+            if use_gaussian_nll:
+                full_logvar = torch.full_like(pred_full, fill_value=logvar_val)
+                loss = gaussian_nll(batch.full_values, pred_full, full_logvar)
+            else:
+                loss = torch.mean((pred_full - batch.full_values).pow(2))
         else:
-            loss = torch.mean((pred_next - target_next).pow(2))
+            raise ValueError("objective must be one of: 'full_rollout', 'next_observed'")
 
         loss.backward()
         if grad_clip_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
 
-        if eval_every > 0 and (iteration == 1 or iteration % eval_every == 0 or iteration == n_iters):
-            rmse_value = evaluate_rnn(model, batch)["rmse"]
+        should_eval = iteration == n_iters or (eval_every > 0 and iteration % eval_every == 0)
+        if eval_first_iter and iteration == 1:
+            should_eval = True
+
+        if should_eval:
+            rmse_value = evaluate_rnn(model, batch, mode="autoregressive", return_predictions=False)["rmse"]
         else:
             rmse_value = history["rmse"][-1] if history["rmse"] else float("nan")
 
@@ -200,5 +246,5 @@ def train_rnn_fullbatch(
         history["rmse"].append(float(rmse_value))
         progress.set_postfix(loss=f"{loss.item():.4f}", rmse=f"{rmse_value:.4f}")
 
-    final_eval = evaluate_rnn(model, batch)
+    final_eval = evaluate_rnn(model, batch, mode="autoregressive", return_predictions=True)
     return {"history": history, "eval": final_eval}

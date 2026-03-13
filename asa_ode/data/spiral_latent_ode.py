@@ -21,7 +21,7 @@ class SpiralDataBatch:
 
 def generate_spiral2d(
     nspiral: int = 1000,
-    ntotal: int = 500,
+    ntotal: int = 100,
     nsample: int = 50,
     start: float = 0.0,
     stop: float = 6.0 * math.pi,
@@ -31,6 +31,7 @@ def generate_spiral2d(
     seed: int = 42,
     shared_time_grid: bool = True,
     shuffle_directions: bool = True,
+    include_t0: bool = True,
 ) -> SpiralDataBatch:
     """Generates clockwise and counter-clockwise Archimedean spirals with noisy irregular observations."""
     if nspiral < 2:
@@ -71,7 +72,13 @@ def generate_spiral2d(
     noisy_trajs = orig_trajs + float(noise_std) * torch.randn(orig_trajs.shape, generator=gen, dtype=torch.float32)
 
     if shared_time_grid:
-        sample_idx = torch.randperm(ntotal, generator=gen)[:nsample]
+        if include_t0:
+            if nsample < 2:
+                raise ValueError("nsample must be at least 2 when include_t0 is True")
+            tail = torch.randperm(ntotal - 1, generator=gen)[: nsample - 1] + 1
+            sample_idx = torch.cat([torch.zeros(1, dtype=torch.long), tail], dim=0)
+        else:
+            sample_idx = torch.randperm(ntotal, generator=gen)[:nsample]
         sample_idx, _ = torch.sort(sample_idx)
         samp_trajs = noisy_trajs[:, sample_idx]
         samp_ts = theta[sample_idx]
@@ -80,7 +87,14 @@ def generate_spiral2d(
         all_ts = []
         all_trajs = []
         for i in range(nspiral):
-            idx = torch.randperm(ntotal, generator=gen)[:nsample]
+            _ = i
+            if include_t0:
+                if nsample < 2:
+                    raise ValueError("nsample must be at least 2 when include_t0 is True")
+                tail = torch.randperm(ntotal - 1, generator=gen)[: nsample - 1] + 1
+                idx = torch.cat([torch.zeros(1, dtype=torch.long), tail], dim=0)
+            else:
+                idx = torch.randperm(ntotal, generator=gen)[:nsample]
             idx, _ = torch.sort(idx)
             all_idx.append(idx)
             all_ts.append(theta[idx])

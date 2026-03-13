@@ -204,7 +204,7 @@ class GRUBaseline(nn.Module):
         observed_indices: torch.Tensor,
         full_times: torch.Tensor,
     ) -> torch.Tensor:
-        """Rolls out full trajectory on full time grid while anchoring at observed indices."""
+        """Rolls out full trajectory on full time grid with observation anchors (teacher forcing at observed steps)."""
         batch_size = observed_values.shape[0]
         total_steps = full_times.shape[0]
         h = torch.zeros(batch_size, self.hidden_dim, device=observed_values.device, dtype=observed_values.dtype)
@@ -217,23 +217,63 @@ class GRUBaseline(nn.Module):
             obs_idx = observed_indices
         obs_idx = obs_idx.to(device=full_times.device, dtype=torch.long)
 
+        first_obs = int(obs_idx[0].item())
         current_x = observed_values[:, 0]
-        prev_t = full_times[0]
-        obs_ptr = 1
+        preds[:, first_obs] = current_x
+        if first_obs > 0:
+            preds[:, :first_obs] = current_x.unsqueeze(1)
 
-        for step in range(total_steps):
-            current_t = full_times[step]
-            dt = (current_t - prev_t).expand(batch_size)
+        h = self.gru_cell(self._step_input(current_x, torch.zeros(batch_size, device=current_x.device)), h)
+        obs_ptr = 1
+        for step in range(first_obs, total_steps - 1):
+            dt = (full_times[step + 1] - full_times[step]).expand(batch_size)
             inp = self._step_input(current_x, dt)
             h = self.gru_cell(inp, h)
-            step_pred = self.readout(h)
-            preds[:, step] = step_pred
+            next_pred = self.readout(h)
 
-            if obs_ptr < obs_idx.numel() and step == int(obs_idx[obs_ptr].item()):
+            next_step = step + 1
+            if obs_ptr < obs_idx.numel() and next_step == int(obs_idx[obs_ptr].item()):
                 current_x = observed_values[:, obs_ptr]
+                preds[:, next_step] = current_x
+                h = self.gru_cell(self._step_input(current_x, torch.zeros(batch_size, device=current_x.device)), h)
                 obs_ptr += 1
             else:
-                current_x = step_pred
-            prev_t = current_t
+                current_x = next_pred
+                preds[:, next_step] = next_pred
+
+        return preds
+
+    def rollout_autoregressive(
+        self,
+        observed_values: torch.Tensor,
+        observed_indices: torch.Tensor,
+        full_times: torch.Tensor,
+    ) -> torch.Tensor:
+        """Rolls out full trajectory autoregressively from the first observed point without teacher forcing."""
+        batch_size = observed_values.shape[0]
+        total_steps = full_times.shape[0]
+        h = torch.zeros(batch_size, self.hidden_dim, device=observed_values.device, dtype=observed_values.dtype)
+        preds = torch.zeros(batch_size, total_steps, self.obs_dim, device=observed_values.device, dtype=observed_values.dtype)
+
+        if observed_indices.ndim == 2:
+            obs_idx = observed_indices[0]
+        else:
+            obs_idx = observed_indices
+        obs_idx = obs_idx.to(device=full_times.device, dtype=torch.long)
+
+        first_obs = int(obs_idx[0].item())
+        current_x = observed_values[:, 0]
+        preds[:, first_obs] = current_x
+        if first_obs > 0:
+            preds[:, :first_obs] = current_x.unsqueeze(1)
+
+        h = self.gru_cell(self._step_input(current_x, torch.zeros(batch_size, device=current_x.device)), h)
+        for step in range(first_obs, total_steps - 1):
+            dt = (full_times[step + 1] - full_times[step]).expand(batch_size)
+            inp = self._step_input(current_x, dt)
+            h = self.gru_cell(inp, h)
+            next_pred = self.readout(h)
+            preds[:, step + 1] = next_pred
+            current_x = next_pred
 
         return preds
