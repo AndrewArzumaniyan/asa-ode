@@ -15,9 +15,13 @@ import math
 import glob
 import re
 from shutil import copyfile
-import sklearn as sk
 import subprocess
 import datetime
+
+try:
+	import sklearn as sk
+except ModuleNotFoundError:
+	sk = None
 
 def makedirs(dirname):
 	if not os.path.exists(dirname):
@@ -567,6 +571,8 @@ def compute_loss_all_batches(model,
 			total[key] = total[key] / n_test_batches
  
 	if args.classif:
+		if sk is None:
+			raise ImportError("scikit-learn is required to compute classification metrics.")
 		if args.dataset == "physionet":
 			#all_test_labels = all_test_labels.reshape(-1)
 			# For each trajectory, we get n_traj_samples samples from z0 -- compute loss on all of them

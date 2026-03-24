@@ -60,6 +60,7 @@ parser.add_argument('--quantization', type=float, default=0.1, help="Quantizatio
 	"Value 1 means quantization by 1 hour, value 0.1 means quantization by 0.1 hour = 6 min")
 
 parser.add_argument('--latent-ode', action='store_true', help="Run Latent ODE seq2seq model")
+parser.add_argument('--feature-attn-ode', action='store_true', help="Run feature-wise Latent ODE with shared GRU encoder, feature embeddings and attention in the ODE dynamics")
 parser.add_argument('--z0-encoder', type=str, default='odernn', help="Type of encoder for Latent ODE model: odernn or rnn")
 
 parser.add_argument('--classic-rnn', action='store_true', help="Run RNN baseline: classic RNN that sees true points at every point. Used for interpolation only.")
@@ -71,6 +72,8 @@ parser.add_argument('--ode-rnn', action='store_true', help="Run ODE-RNN baseline
 parser.add_argument('--rnn-vae', action='store_true', help="Run RNN baseline: seq2seq model with sampling of the h0 and ELBO loss.")
 
 parser.add_argument('-l', '--latents', type=int, default=6, help="Size of the latent state")
+parser.add_argument('--feature-latents', type=int, default=4, help="Latent dimensionality per feature token for feature-attention latent ODE")
+parser.add_argument('--feature-embed-dim', type=int, default=8, help="Embedding dimensionality for feature identities in feature-attention latent ODE")
 parser.add_argument('--rec-dims', type=int, default=20, help="Dimensionality of the recognition model (ODE or RNN).")
 
 parser.add_argument('--rec-layers', type=int, default=1, help="Number of layers in ODE func in recognition ODE")
@@ -78,6 +81,10 @@ parser.add_argument('--gen-layers', type=int, default=1, help="Number of layers 
 
 parser.add_argument('-u', '--units', type=int, default=100, help="Number of units per layer in ODE func")
 parser.add_argument('-g', '--gru-units', type=int, default=100, help="Number of units per layer in each of GRU update networks")
+parser.add_argument('--attn-heads', type=int, default=1, help="Number of attention heads in feature-attention latent ODE")
+parser.add_argument('--attn-layers', type=int, default=1, help="Number of feature-attention blocks in feature-attention latent ODE")
+parser.add_argument('--attn-dropout', type=float, default=0.0, help="Dropout inside feature-attention blocks")
+parser.add_argument('--decoder-units', type=int, default=100, help="Hidden size of the feature-wise decoder in feature-attention latent ODE")
 
 parser.add_argument('--poisson', action='store_true', help="Model poisson-process likelihood for the density of events in addition to reconstruction.")
 parser.add_argument('--classif', action='store_true', help="Include binary classification loss -- used for Physionet dataset for hospiral mortality")
@@ -219,7 +226,7 @@ if __name__ == '__main__':
 			n_labels = n_labels,
 			train_classif_w_reconstr = (args.dataset == "physionet")
 			).to(device)
-	elif args.latent_ode:
+	elif args.latent_ode or args.feature_attn_ode:
 		model = create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device, 
 			classif_per_tp = classif_per_tp,
 			n_labels = n_labels)
@@ -336,4 +343,3 @@ if __name__ == '__main__':
 		'args': args,
 		'state_dict': model.state_dict(),
 	}, ckpt_path)
-
