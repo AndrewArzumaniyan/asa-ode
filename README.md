@@ -1,79 +1,95 @@
-# ASA-ODE Baseline
+# Latent ODEs for Irregularly-Sampled Time Series
 
-Baseline Neural ODE (without attention) for irregular time series interpolation on PhysioNet 2012 style data.
+Code for the paper:
+> Yulia Rubanova, Ricky Chen, David Duvenaud. "Latent ODEs for Irregularly-Sampled Time Series" (2019)
+[[arxiv]](https://arxiv.org/abs/1907.03907)
 
-## Environment
+<p align="center">
+<img align="middle" src="./assets/viz.gif" width="800" />
+</p>
 
-Use your conda env and install PyTorch explicitly for your platform first:
+## Prerequisites
 
-```bash
-conda activate py3.11_asa_ode
+Install `torchdiffeq` from https://github.com/rtqichen/torchdiffeq.
+
+## Experiments on different datasets
+
+By default, the dataset are downloadeded and processed when script is run for the first time. 
+
+Raw datasets: 
+[[MuJoCo]](http://www.cs.toronto.edu/~rtqichen/datasets/HopperPhysics/training.pt)
+[[Physionet]](https://physionet.org/physiobank/database/challenge/2012/)
+[[Human Activity]](https://archive.ics.uci.edu/ml/datasets/Localization+Data+for+Person+Activity/)
+
+To generate MuJoCo trajectories from scratch, [DeepMind Control Suite](https://github.com/deepmind/dm_control/) is required
+
+
+* Toy dataset of 1d periodic functions
+```
+python3 run_models.py --niters 500 -n 1000 -s 50 -l 10 --dataset periodic  --latent-ode --noise-weight 0.01 
 ```
 
-### macOS (Apple Silicon, MPS)
-```bash
-pip install torch torchvision torchaudio
-pip install -r requirements.txt
+* MuJoCo
+
+```
+python3 run_models.py --niters 300 -n 10000 -l 15 --dataset hopper --latent-ode --rec-dims 30 --gru-units 100 --units 300 --gen-layers 3 --rec-layers 3
 ```
 
-### Linux/Windows with NVIDIA GPU (CUDA)
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
+* Physionet (discretization by 1 min)
+```
+python3 run_models.py --niters 100 -n 8000 -l 20 --dataset physionet --latent-ode --rec-dims 40 --rec-layers 3 --gen-layers 3 --units 50 --gru-units 50 --quantization 0.016 --classif
+
 ```
 
-### CPU-only
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
+* Human Activity
+```
+python3 run_models.py --niters 200 -n 10000 -l 15 --dataset activity --latent-ode --rec-dims 100 --rec-layers 4 --gen-layers 2 --units 500 --gru-units 50 --classif  --linear-classif
+
 ```
 
-PyTorch wheel selection is not based on runtime GPU availability, so explicit install is required.
-Use the official selector for the exact command: https://docs.pytorch.org/get-started/locally/
 
-## Expected data format
+### Running different models
 
-The loader expects patient `.txt` files recursively under `data_root` with rows:
-
-```text
-Time,Parameter,Value
-00:00,HR,80
-00:00,Temp,36.9
+* ODE-RNN
+```
+python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --ode-rnn
 ```
 
-`RecordID` is ignored automatically.
-
-### Download command
-```bash
-curl -L -o set-a.zip https://physionet.org/files/challenge-2012/1.0.0/set-a.zip 
-unzip -q set-a.zip
+* Latent ODE with ODE-RNN encoder
 ```
-After that you will have the data in the current directory. This path is needed to be in the config. Easy way first of all:
-```bash
-mkdir -p data/physionet2012
-cd data/physionet2012
-```
-and after that run commands upper to download. Paths to this directory have already added to config.
-
-## Train
-
-```bash
-python scripts/train.py --config configs/baseline.json --rebuild-cache
+python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --latent-ode
 ```
 
-Artifacts are saved into `output_dir` from config:
-- `best_model.pt`
-- `history.json`
-- `summary.json`
-
-## Evaluate
-
-```bash
-python scripts/eval.py --config configs/baseline.json --checkpoint outputs/baseline/best_model.pt
+* Latent ODE with ODE-RNN encoder and poisson likelihood
+```
+python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --latent-ode --poisson
 ```
 
-## Notes
+* Latent ODE with RNN encoder (Chen et al, 2018)
+```
+python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --latent-ode --z0-encoder rnn
+```
 
-- Device is selected automatically: CUDA -> MPS -> CPU.
-- On MPS, adjoint is disabled automatically for stability.
-- Long stages use tqdm (feature inference, parsing, stats, train/val/test loops).
+* RNN-VAE
+```
+python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --rnn-vae
+```
+
+*  Classic RNN
+```
+python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --classic-rnn
+```
+
+* GRU-D
+
+GRU-D consists of two parts: input imputation (--input-decay) and exponential decay of the hidden state (--rnn-cell expdecay)
+
+```
+python3 run_models.py --niters 500 -n 100  -b 30 -l 10 --dataset periodic  --classic-rnn --input-decay --rnn-cell expdecay
+```
+
+
+### Making the visualization
+```
+python3 run_models.py --niters 100 -n 5000 -b 100 -l 3 --dataset periodic --latent-ode --noise-weight 0.5 --lr 0.01 --viz --rec-layers 2 --gen-layers 2 -u 100 -c 30
+```
