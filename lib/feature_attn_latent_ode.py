@@ -102,11 +102,20 @@ class FeatureSelfAttentionBlock(nn.Module):
 		)
 		utils.init_network_weights(self.ff)
 
-	def forward(self, state):
-		attended, _ = self.attention(state, state, state)
+	def forward(self, state, return_weights = False):
+		attn_kwargs = {}
+		if return_weights:
+			attn_kwargs["need_weights"] = True
+			attn_kwargs["average_attn_weights"] = False
+
+		attended, weights = self.attention(state, state, state, **attn_kwargs)
 		state = self.norm1(state + attended)
 		ff_state = self.ff(state)
-		return self.norm2(state + ff_state)
+		state = self.norm2(state + ff_state)
+
+		if return_weights:
+			return state, weights
+		return state
 
 
 class FeatureAttentionODEFunc(nn.Module):
@@ -172,19 +181,38 @@ class FeatureAttentionODEFunc(nn.Module):
 		state = state.reshape(-1, self.n_features, self.feature_latent_dim)
 		return state, leading_shape
 
-	def get_ode_gradient_nn(self, state):
-		state, leading_shape = self._reshape_state(state)
-
+	def _get_feature_conditioning(self, state):
 		feature_embeddings = self.feature_embedding(self.feature_indices)
 		feature_bias = self.feature_to_latent(feature_embeddings)
 		feature_bias = feature_bias.unsqueeze(0).expand(state.size(0), -1, -1)
+		return state + feature_bias, feature_bias
 
-		hidden = state + feature_bias
+	def get_ode_gradient_nn(self, state):
+		state, leading_shape = self._reshape_state(state)
+		hidden, feature_bias = self._get_feature_conditioning(state)
 		for block in self.attn_blocks:
 			hidden = block(hidden)
 
 		gradient = self.gradient_net(torch.cat((hidden, feature_bias), -1))
 		return gradient.reshape(*leading_shape, self.total_latent_dim)
+
+	def get_attention_maps(self, state):
+		state, leading_shape = self._reshape_state(state)
+		hidden, _ = self._get_feature_conditioning(state)
+
+		attention_maps = []
+		for block in self.attn_blocks:
+			hidden, weights = block(hidden, return_weights = True)
+			attention_maps.append(
+				weights.reshape(
+					*leading_shape,
+					block.attention.num_heads,
+					self.n_features,
+					self.n_features,
+				)
+			)
+
+		return attention_maps
 
 	def forward(self, t_local, state, backwards = False):
 		gradient = self.get_ode_gradient_nn(state)

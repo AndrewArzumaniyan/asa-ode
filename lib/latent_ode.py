@@ -60,7 +60,7 @@ class LatentODE(VAE_Baseline):
 		sigma_z0 = first_point_std.repeat(n_traj_samples, 1, 1)
 		first_point_enc = utils.sample_standard_gaussian(means_z0, sigma_z0)
 		
-		first_point_std = first_point_std.abs()
+		first_point_std = first_point_std.abs().clamp_min(1e-5)
 		assert(torch.sum(first_point_std < 0) == 0.)
 
 		if self.use_poisson_proc:
