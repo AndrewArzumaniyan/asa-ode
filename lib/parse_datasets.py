@@ -88,7 +88,7 @@ def parse_datasets(args, device):
 		batch_size = min(args.batch_size, args.n)
 		train_dataloader = DataLoader(train_y, batch_size = batch_size, shuffle=False,
 			collate_fn= lambda batch: basic_collate_fn(batch, time_steps, data_type = "train"))
-		test_dataloader = DataLoader(test_y, batch_size = n_samples, shuffle=False,
+		test_dataloader = DataLoader(test_y, batch_size = min(args.batch_size, n_samples), shuffle=False,
 			collate_fn= lambda batch: basic_collate_fn(batch, time_steps, data_type = "test"))
 		
 		data_objects = {"dataset_obj": dataset_obj, 
@@ -127,7 +127,7 @@ def parse_datasets(args, device):
 		batch_size = min(args.batch_size, args.n)
 		train_dataloader = DataLoader(train_y, batch_size=batch_size, shuffle=False,
 			collate_fn=lambda batch: basic_collate_fn(batch, time_steps, data_type="train"))
-		test_dataloader = DataLoader(test_y, batch_size=n_samples, shuffle=False,
+		test_dataloader = DataLoader(test_y, batch_size = min(args.batch_size, n_samples), shuffle=False,
 			collate_fn=lambda batch: basic_collate_fn(batch, time_steps, data_type="test"))
 
 		data_objects = {"dataset_obj": dataset_obj,
@@ -166,7 +166,7 @@ def parse_datasets(args, device):
 		batch_size = min(args.batch_size, args.n)
 		train_dataloader = DataLoader(train_y, batch_size=batch_size, shuffle=False,
 			collate_fn=lambda batch: basic_collate_fn(batch, time_steps, data_type="train"))
-		test_dataloader = DataLoader(test_y, batch_size=n_samples, shuffle=False,
+		test_dataloader = DataLoader(test_y, batch_size = min(args.batch_size, n_samples), shuffle=False,
 			collate_fn=lambda batch: basic_collate_fn(batch, time_steps, data_type="test"))
 
 		data_objects = {"dataset_obj": dataset_obj,
@@ -205,7 +205,7 @@ def parse_datasets(args, device):
 		batch_size = min(args.batch_size, args.n)
 		train_dataloader = DataLoader(train_y, batch_size=batch_size, shuffle=False,
 			collate_fn=lambda batch: basic_collate_fn(batch, time_steps, data_type="train"))
-		test_dataloader = DataLoader(test_y, batch_size=n_samples, shuffle=False,
+		test_dataloader = DataLoader(test_y, batch_size = min(args.batch_size, n_samples), shuffle=False,
 			collate_fn=lambda batch: basic_collate_fn(batch, time_steps, data_type="test"))
 
 		data_objects = {"dataset_obj": dataset_obj,
@@ -254,7 +254,7 @@ def parse_datasets(args, device):
 		train_dataloader = DataLoader(train_data, batch_size= batch_size, shuffle=False, 
 			collate_fn= lambda batch: variable_time_collate_fn(batch, args, device, data_type = "train",
 				data_min = data_min, data_max = data_max))
-		test_dataloader = DataLoader(test_data, batch_size = n_samples, shuffle=False, 
+		test_dataloader = DataLoader(test_data, batch_size = min(args.batch_size, n_samples), shuffle=False, 
 			collate_fn= lambda batch: variable_time_collate_fn(batch, args, device, data_type = "test",
 				data_min = data_min, data_max = data_max))
 
@@ -294,7 +294,7 @@ def parse_datasets(args, device):
 		batch_size = min(min(len(dataset_obj), args.batch_size), args.n)
 		train_dataloader = DataLoader(train_data, batch_size= batch_size, shuffle=False, 
 			collate_fn= lambda batch: variable_time_collate_fn_activity(batch, args, device, data_type = "train"))
-		test_dataloader = DataLoader(test_data, batch_size=n_samples, shuffle=False, 
+		test_dataloader = DataLoader(test_data, batch_size = min(args.batch_size, n_samples), shuffle=False, 
 			collate_fn= lambda batch: variable_time_collate_fn_activity(batch, args, device, data_type = "test"))
 
 		data_objects = {"dataset_obj": dataset_obj, 
