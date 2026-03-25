@@ -26,6 +26,43 @@ from sklearn import model_selection
 import random
 
 #####################################################################################################
+def _compute_tensor_feature_means(data):
+	return data.reshape(-1, data.size(-1)).mean(0)
+
+
+def _compute_masked_feature_means(records, data_min = None, data_max = None):
+	feature_sums = None
+	feature_counts = None
+
+	for _, _, vals, mask, _ in records:
+		vals = vals.float()
+		mask = mask.float()
+
+		if data_min is not None and data_max is not None:
+			vals, _, _ = utils.normalize_masked_data(
+				vals.unsqueeze(0),
+				mask.unsqueeze(0),
+				att_min = data_min,
+				att_max = data_max,
+			)
+			vals = vals.squeeze(0)
+
+		current_sums = (vals * mask).sum(0)
+		current_counts = mask.sum(0)
+
+		if feature_sums is None:
+			feature_sums = current_sums
+			feature_counts = current_counts
+		else:
+			feature_sums = feature_sums + current_sums
+			feature_counts = feature_counts + current_counts
+
+	feature_means = feature_sums / feature_counts.clamp_min(1.0)
+	feature_means[feature_counts == 0] = 0.0
+	return feature_means
+
+
+#####################################################################################################
 def parse_datasets(args, device):
 	
 
@@ -96,7 +133,8 @@ def parse_datasets(args, device):
 					"test_dataloader": utils.inf_generator(test_dataloader),
 					"input_dim": input_dim,
 					"n_train_batches": len(train_dataloader),
-					"n_test_batches": len(test_dataloader)}
+					"n_test_batches": len(test_dataloader),
+					"global_feature_means": _compute_tensor_feature_means(train_y)}
 		return data_objects
 
 	##################################################################
@@ -135,7 +173,8 @@ def parse_datasets(args, device):
 				"test_dataloader": utils.inf_generator(test_dataloader),
 				"input_dim": input_dim,
 				"n_train_batches": len(train_dataloader),
-				"n_test_batches": len(test_dataloader)}
+				"n_test_batches": len(test_dataloader),
+				"global_feature_means": _compute_tensor_feature_means(train_y)}
 		return data_objects
 
 	##################################################################
@@ -174,7 +213,8 @@ def parse_datasets(args, device):
 				"test_dataloader": utils.inf_generator(test_dataloader),
 				"input_dim": input_dim,
 				"n_train_batches": len(train_dataloader),
-				"n_test_batches": len(test_dataloader)}
+				"n_test_batches": len(test_dataloader),
+				"global_feature_means": _compute_tensor_feature_means(train_y)}
 		return data_objects
 
 	##################################################################
@@ -213,7 +253,8 @@ def parse_datasets(args, device):
 				"test_dataloader": utils.inf_generator(test_dataloader),
 				"input_dim": input_dim,
 				"n_train_batches": len(train_dataloader),
-				"n_test_batches": len(test_dataloader)}
+				"n_test_batches": len(test_dataloader),
+				"global_feature_means": _compute_tensor_feature_means(train_y)}
 		return data_objects
 
 	##################################################################
@@ -265,6 +306,11 @@ def parse_datasets(args, device):
 					"input_dim": input_dim,
 					"n_train_batches": len(train_dataloader),
 					"n_test_batches": len(test_dataloader),
+					"global_feature_means": _compute_masked_feature_means(
+						train_data,
+						data_min = data_min,
+						data_max = data_max,
+					).to(device),
 					"attr": attr_names, #optional
 					"classif_per_tp": False, #optional
 					"n_labels": 1} #optional
@@ -303,6 +349,7 @@ def parse_datasets(args, device):
 					"input_dim": input_dim,
 					"n_train_batches": len(train_dataloader),
 					"n_test_batches": len(test_dataloader),
+					"global_feature_means": _compute_masked_feature_means(train_data).to(device),
 					"classif_per_tp": True, #optional
 					"n_labels": labels.size(-1)}
 
@@ -354,8 +401,8 @@ def parse_datasets(args, device):
 				"test_dataloader": utils.inf_generator(test_dataloader),
 				"input_dim": input_dim,
 				"n_train_batches": len(train_dataloader),
-				"n_test_batches": len(test_dataloader)}
+				"n_test_batches": len(test_dataloader),
+				"global_feature_means": _compute_tensor_feature_means(train_y)}
 
 	return data_objects
-
 

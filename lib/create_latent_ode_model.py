@@ -19,14 +19,18 @@ from lib.feature_attn_latent_ode import (
 	FeatureWiseDecoder,
 	FeatureWiseEncoder_z0_RNN,
 )
+from lib.featurewise_rnn_attn_encoder import (
+	FeatureWiseLinearDecoder,
+	FeatureWiseRNNEncoder,
+)
 
 from torch.distributions.normal import Normal
 from lib.ode_func import ODEFunc, ODEFunc_w_Poisson
 
 #####################################################################################################
 
-def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device, 
-	classif_per_tp = False, n_labels = 1):
+def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device,
+	classif_per_tp = False, n_labels = 1, global_feature_means = None):
 
 	if getattr(args, "feature_attn_ode", False):
 		if args.poisson:
@@ -34,35 +38,35 @@ def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device,
 
 		feature_latent_dim = args.feature_latents
 		total_latent_dim = input_dim * feature_latent_dim
-		feature_embedding = nn.Embedding(input_dim, args.feature_embed_dim).to(device)
 
-		encoder_z0 = FeatureWiseEncoder_z0_RNN(
+		encoder_z0 = FeatureWiseRNNEncoder(
 			n_features = input_dim,
 			feature_latent_dim = feature_latent_dim,
 			feature_embed_dim = args.feature_embed_dim,
 			encoder_hidden_dim = args.rec_dims,
-			feature_embedding = feature_embedding,
-			device = device,
-		).to(device)
-
-		gen_ode_func = FeatureAttentionODEFunc(
-			n_features = input_dim,
-			feature_latent_dim = feature_latent_dim,
-			feature_embed_dim = args.feature_embed_dim,
 			n_heads = args.attn_heads,
-			n_layers = args.attn_layers,
-			n_units = args.units,
-			dropout = getattr(args, "attn_dropout", 0.0),
-			feature_embedding = feature_embedding,
+			n_attention_layers = args.attn_layers,
+			global_feature_means = global_feature_means,
 			device = device,
 		).to(device)
 
-		decoder = FeatureWiseDecoder(
+		ode_func_net = utils.create_net(
+			total_latent_dim,
+			total_latent_dim,
+			n_layers = args.gen_layers,
+			n_units = args.units,
+			nonlinear = nn.Tanh,
+		)
+		gen_ode_func = ODEFunc(
+			input_dim = input_dim,
+			latent_dim = total_latent_dim,
+			ode_func_net = ode_func_net,
+			device = device,
+		).to(device)
+
+		decoder = FeatureWiseLinearDecoder(
 			n_features = input_dim,
 			feature_latent_dim = feature_latent_dim,
-			feature_embed_dim = args.feature_embed_dim,
-			decoder_hidden_dim = getattr(args, "decoder_units", args.units),
-			feature_embedding = feature_embedding,
 		).to(device)
 
 		diffeq_solver = DiffeqSolver(

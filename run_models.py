@@ -229,7 +229,8 @@ if __name__ == '__main__':
 	elif args.latent_ode or args.feature_attn_ode:
 		model = create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device, 
 			classif_per_tp = classif_per_tp,
-			n_labels = n_labels)
+			n_labels = n_labels,
+			global_feature_means = data_obj.get("global_feature_means"))
 	else:
 		raise Exception("Model not specified")
 
