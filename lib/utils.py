@@ -536,8 +536,6 @@ def compute_loss_all_batches(model,
 	all_test_labels =  torch.Tensor([]).to(device)
 
 	for i in range(n_batches):
-		print("Computing loss... " + str(i))
-		
 		batch_dict = get_next_batch(test_dataloader)
 
 		results  = model.compute_all_losses(batch_dict,

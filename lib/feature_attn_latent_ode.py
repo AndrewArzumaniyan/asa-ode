@@ -149,6 +149,10 @@ class FeatureAttentionODEFunc(nn.Module):
 
 		self.register_buffer("feature_indices", torch.arange(n_features).long())
 
+		self.conditioning_net = nn.Linear(
+			feature_latent_dim + feature_embed_dim,
+			feature_latent_dim,
+		)
 		self.feature_to_latent = nn.Linear(feature_embed_dim, feature_latent_dim)
 		self.attn_blocks = nn.ModuleList(
 			[
@@ -166,6 +170,7 @@ class FeatureAttentionODEFunc(nn.Module):
 			nn.Tanh(),
 			nn.Linear(n_units, feature_latent_dim),
 		)
+		utils.init_network_weights(self.conditioning_net)
 		utils.init_network_weights(self.feature_to_latent)
 		utils.init_network_weights(self.gradient_net)
 
@@ -185,7 +190,9 @@ class FeatureAttentionODEFunc(nn.Module):
 		feature_embeddings = self.feature_embedding(self.feature_indices)
 		feature_bias = self.feature_to_latent(feature_embeddings)
 		feature_bias = feature_bias.unsqueeze(0).expand(state.size(0), -1, -1)
-		return state + feature_bias, feature_bias
+		feature_embeddings = feature_embeddings.unsqueeze(0).expand(state.size(0), -1, -1)
+		hidden = self.conditioning_net(torch.cat((state, feature_embeddings), -1))
+		return hidden, feature_bias
 
 	def get_ode_gradient_nn(self, state):
 		state, leading_shape = self._reshape_state(state)
