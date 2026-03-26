@@ -60,7 +60,8 @@ parser.add_argument('--quantization', type=float, default=0.1, help="Quantizatio
 	"Value 1 means quantization by 1 hour, value 0.1 means quantization by 0.1 hour = 6 min")
 
 parser.add_argument('--latent-ode', action='store_true', help="Run Latent ODE seq2seq model")
-parser.add_argument('--feature-attn-ode', action='store_true', help="Run feature-wise Latent ODE with shared GRU encoder, feature embeddings and attention in the ODE dynamics")
+parser.add_argument('--feature-attn-ode', action='store_true', help="Run the older feature-attention Latent ODE variant with attention inside the Neural ODE dynamics")
+parser.add_argument('--featurewise-rnn-attn-ode', action='store_true', help="Run the new feature-wise RNN attention encoder with a standard Neural ODE latent dynamics")
 parser.add_argument('--z0-encoder', type=str, default='odernn', help="Type of encoder for Latent ODE model: odernn or rnn")
 
 parser.add_argument('--classic-rnn', action='store_true', help="Run RNN baseline: classic RNN that sees true points at every point. Used for interpolation only.")
@@ -226,7 +227,7 @@ if __name__ == '__main__':
 			n_labels = n_labels,
 			train_classif_w_reconstr = (args.dataset == "physionet")
 			).to(device)
-	elif args.latent_ode or args.feature_attn_ode:
+	elif args.latent_ode or args.feature_attn_ode or args.featurewise_rnn_attn_ode:
 		model = create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device, 
 			classif_per_tp = classif_per_tp,
 			n_labels = n_labels,
