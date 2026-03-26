@@ -1,18 +1,32 @@
 # Latent ODEs for Irregularly-Sampled Time Series
 
-Code for the paper:
-> Yulia Rubanova, Ricky Chen, David Duvenaud. "Latent ODEs for Irregularly-Sampled Time Series" (2019)
-[[arxiv]](https://arxiv.org/abs/1907.03907)
-
-This repository starts from the Rubanova et al. implementation and keeps its training / data pipeline.
+This repository starts from the Rubanova et al. implementation.
 
 We added two custom model variants:
 - `lib/feature_attn_latent_ode.py`: the older variant with feature attention inside the Neural ODE, launched with `--feature-attn-ode`
 - `lib/featurewise_rnn_attn_encoder.py`: the new feature-wise RNN attention encoder with standard latent ODE dynamics, launched with `--featurewise-rnn-attn-ode`
 
 <p align="center">
-<img align="middle" src="./assets/viz.gif" width="800" />
+<img align="middle" src="./hopper_comparison_0.gif" width="800" />
 </p>
+
+```
+python3 run_models.py \
+  --dataset hopper \
+  --feature-attn-ode \
+  -n 1000 \
+  -b 32 \
+  --niters 300 \
+  --lr 1e-3 \
+  --feature-latents 16 \
+  --feature-embed-dim 32 \
+  --attn-heads 4 \
+  --attn-layers 1 \
+  --rec-dims 64 \
+  --gen-layers 1 \
+  -u 128 \
+  --save experiments/
+```
 
 ## Prerequisites
 
