@@ -1,4 +1,4 @@
-# Latent ODEs for Irregularly-Sampled Time Series
+# ASA-ODE
 
 This repository starts from the Rubanova et al. implementation.
 
