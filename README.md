@@ -10,6 +10,12 @@ We added two custom model variants:
 <img align="middle" src="./hopper_comparison_0.gif" width="800" />
 </p>
 
+
+<p align="center">
+<img align="middle" src="./hopper_comparison_2.gif" width="800" />
+</p>
+
+
 ```
 python3 run_models.py \
   --dataset hopper \
