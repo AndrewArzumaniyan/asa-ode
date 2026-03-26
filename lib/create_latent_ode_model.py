@@ -1,0 +1,246 @@
+###########################
+# Latent ODEs for Irregularly-Sampled Time Series
+# Author: Yulia Rubanova
+###########################
+
+import os
+import numpy as np
+
+import torch
+import torch.nn as nn
+from torch.nn.functional import relu
+
+import lib.utils as utils
+from lib.latent_ode import LatentODE
+from lib.encoder_decoder import *
+from lib.diffeq_solver import DiffeqSolver
+from lib.feature_attn_latent_ode import (
+	FeatureAttentionODEFunc,
+	FeatureWiseDecoder,
+	FeatureWiseEncoder_z0_RNN,
+)
+from lib.featurewise_rnn_attn_encoder import (
+	FeatureWiseLinearDecoder,
+	FeatureWiseRNNEncoder,
+)
+
+from torch.distributions.normal import Normal
+from lib.ode_func import ODEFunc, ODEFunc_w_Poisson
+
+#####################################################################################################
+
+def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device,
+	classif_per_tp = False, n_labels = 1, global_feature_means = None):
+
+	if getattr(args, "featurewise_rnn_attn_ode", False):
+		if args.poisson:
+			raise Exception("Poisson process likelihood is not implemented for feature-wise RNN attention latent ODE")
+
+		feature_latent_dim = args.feature_latents
+		total_latent_dim = input_dim * feature_latent_dim
+
+		encoder_z0 = FeatureWiseRNNEncoder(
+			n_features = input_dim,
+			feature_latent_dim = feature_latent_dim,
+			feature_embed_dim = args.feature_embed_dim,
+			encoder_hidden_dim = args.rec_dims,
+			n_heads = args.attn_heads,
+			n_attention_layers = args.attn_layers,
+			global_feature_means = global_feature_means,
+			device = device,
+		).to(device)
+
+		ode_func_net = utils.create_net(
+			total_latent_dim,
+			total_latent_dim,
+			n_layers = args.gen_layers,
+			n_units = args.units,
+			nonlinear = nn.Tanh,
+		)
+		gen_ode_func = ODEFunc(
+			input_dim = input_dim,
+			latent_dim = total_latent_dim,
+			ode_func_net = ode_func_net,
+			device = device,
+		).to(device)
+
+		decoder = FeatureWiseLinearDecoder(
+			n_features = input_dim,
+			feature_latent_dim = feature_latent_dim,
+		).to(device)
+
+		diffeq_solver = DiffeqSolver(
+			input_dim,
+			gen_ode_func,
+			'dopri5',
+			total_latent_dim,
+			odeint_rtol = 1e-3,
+			odeint_atol = 1e-4,
+			device = device,
+		)
+
+		model = LatentODE(
+			input_dim = input_dim,
+			latent_dim = total_latent_dim,
+			encoder_z0 = encoder_z0,
+			decoder = decoder,
+			diffeq_solver = diffeq_solver,
+			z0_prior = z0_prior,
+			device = device,
+			obsrv_std = obsrv_std,
+			use_poisson_proc = False,
+			use_binary_classif = args.classif,
+			linear_classifier = args.linear_classif,
+			classif_per_tp = classif_per_tp,
+			n_labels = n_labels,
+			train_classif_w_reconstr = (args.dataset == "physionet")
+		).to(device)
+
+		return model
+
+	if getattr(args, "feature_attn_ode", False):
+		if args.poisson:
+			raise Exception("Poisson process likelihood is not implemented for feature attention latent ODE")
+
+		feature_latent_dim = args.feature_latents
+		total_latent_dim = input_dim * feature_latent_dim
+		feature_embedding = nn.Embedding(input_dim, args.feature_embed_dim).to(device)
+
+		encoder_z0 = FeatureWiseEncoder_z0_RNN(
+			n_features = input_dim,
+			feature_latent_dim = feature_latent_dim,
+			feature_embed_dim = args.feature_embed_dim,
+			encoder_hidden_dim = args.rec_dims,
+			feature_embedding = feature_embedding,
+			device = device,
+		).to(device)
+
+		gen_ode_func = FeatureAttentionODEFunc(
+			n_features = input_dim,
+			feature_latent_dim = feature_latent_dim,
+			feature_embed_dim = args.feature_embed_dim,
+			n_heads = args.attn_heads,
+			n_layers = args.attn_layers,
+			n_units = args.units,
+			dropout = getattr(args, "attn_dropout", 0.0),
+			feature_embedding = feature_embedding,
+			device = device,
+		).to(device)
+
+		decoder = FeatureWiseDecoder(
+			n_features = input_dim,
+			feature_latent_dim = feature_latent_dim,
+			feature_embed_dim = args.feature_embed_dim,
+			decoder_hidden_dim = getattr(args, "decoder_units", args.units),
+			feature_embedding = feature_embedding,
+		).to(device)
+
+		diffeq_solver = DiffeqSolver(
+			input_dim,
+			gen_ode_func,
+			'dopri5',
+			total_latent_dim,
+			odeint_rtol = 1e-3,
+			odeint_atol = 1e-4,
+			device = device,
+		)
+
+		model = LatentODE(
+			input_dim = input_dim,
+			latent_dim = total_latent_dim,
+			encoder_z0 = encoder_z0,
+			decoder = decoder,
+			diffeq_solver = diffeq_solver,
+			z0_prior = z0_prior,
+			device = device,
+			obsrv_std = obsrv_std,
+			use_poisson_proc = False,
+			use_binary_classif = args.classif,
+			linear_classifier = args.linear_classif,
+			classif_per_tp = classif_per_tp,
+			n_labels = n_labels,
+			train_classif_w_reconstr = (args.dataset == "physionet")
+		).to(device)
+
+		return model
+
+	dim = args.latents
+	if args.poisson:
+		lambda_net = utils.create_net(dim, input_dim, 
+			n_layers = 1, n_units = args.units, nonlinear = nn.Tanh)
+
+		# ODE function produces the gradient for latent state and for poisson rate
+		ode_func_net = utils.create_net(dim * 2, args.latents * 2, 
+			n_layers = args.gen_layers, n_units = args.units, nonlinear = nn.Tanh)
+
+		gen_ode_func = ODEFunc_w_Poisson(
+			input_dim = input_dim, 
+			latent_dim = args.latents * 2,
+			ode_func_net = ode_func_net,
+			lambda_net = lambda_net,
+			device = device).to(device)
+	else:
+		dim = args.latents 
+		ode_func_net = utils.create_net(dim, args.latents, 
+			n_layers = args.gen_layers, n_units = args.units, nonlinear = nn.Tanh)
+
+		gen_ode_func = ODEFunc(
+			input_dim = input_dim, 
+			latent_dim = args.latents, 
+			ode_func_net = ode_func_net,
+			device = device).to(device)
+
+	z0_diffeq_solver = None
+	n_rec_dims = args.rec_dims
+	enc_input_dim = int(input_dim) * 2 # we concatenate the mask
+	gen_data_dim = input_dim
+
+	z0_dim = args.latents
+	if args.poisson:
+		z0_dim += args.latents # predict the initial poisson rate
+
+	if args.z0_encoder == "odernn":
+		ode_func_net = utils.create_net(n_rec_dims, n_rec_dims, 
+			n_layers = args.rec_layers, n_units = args.units, nonlinear = nn.Tanh)
+
+		rec_ode_func = ODEFunc(
+			input_dim = enc_input_dim, 
+			latent_dim = n_rec_dims,
+			ode_func_net = ode_func_net,
+			device = device).to(device)
+
+		z0_diffeq_solver = DiffeqSolver(enc_input_dim, rec_ode_func, "euler", args.latents, 
+			odeint_rtol = 1e-3, odeint_atol = 1e-4, device = device)
+		
+		encoder_z0 = Encoder_z0_ODE_RNN(n_rec_dims, enc_input_dim, z0_diffeq_solver, 
+			z0_dim = z0_dim, n_gru_units = args.gru_units, device = device).to(device)
+
+	elif args.z0_encoder == "rnn":
+		encoder_z0 = Encoder_z0_RNN(z0_dim, enc_input_dim,
+			lstm_output_size = n_rec_dims, device = device).to(device)
+	else:
+		raise Exception("Unknown encoder for Latent ODE model: " + args.z0_encoder)
+
+	decoder = Decoder(args.latents, gen_data_dim).to(device)
+
+	diffeq_solver = DiffeqSolver(gen_data_dim, gen_ode_func, 'dopri5', args.latents, 
+		odeint_rtol = 1e-3, odeint_atol = 1e-4, device = device)
+
+	model = LatentODE(
+		input_dim = gen_data_dim, 
+		latent_dim = args.latents, 
+		encoder_z0 = encoder_z0, 
+		decoder = decoder, 
+		diffeq_solver = diffeq_solver, 
+		z0_prior = z0_prior, 
+		device = device,
+		obsrv_std = obsrv_std,
+		use_poisson_proc = args.poisson, 
+		use_binary_classif = args.classif,
+		linear_classifier = args.linear_classif,
+		classif_per_tp = classif_per_tp,
+		n_labels = n_labels,
+		train_classif_w_reconstr = (args.dataset == "physionet")
+		).to(device)
+
+	return model
