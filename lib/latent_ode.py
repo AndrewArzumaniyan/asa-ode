@@ -4,7 +4,6 @@
 ###########################
 
 import numpy as np
-import sklearn as sk
 import numpy as np
 #import gc
 import torch
@@ -51,23 +50,17 @@ class LatentODE(VAE_Baseline):
 	def get_reconstruction(self, time_steps_to_predict, truth, truth_time_steps, 
 		mask = None, n_traj_samples = 1, run_backwards = True, mode = None):
 
-		if isinstance(self.encoder_z0, Encoder_z0_ODE_RNN) or \
-			isinstance(self.encoder_z0, Encoder_z0_RNN):
+		truth_w_mask = truth
+		if mask is not None:
+			truth_w_mask = torch.cat((truth, mask), -1)
+		first_point_mu, first_point_std = self.encoder_z0(
+			truth_w_mask, truth_time_steps, run_backwards = run_backwards)
 
-			truth_w_mask = truth
-			if mask is not None:
-				truth_w_mask = torch.cat((truth, mask), -1)
-			first_point_mu, first_point_std = self.encoder_z0(
-				truth_w_mask, truth_time_steps, run_backwards = run_backwards)
-
-			means_z0 = first_point_mu.repeat(n_traj_samples, 1, 1)
-			sigma_z0 = first_point_std.repeat(n_traj_samples, 1, 1)
-			first_point_enc = utils.sample_standard_gaussian(means_z0, sigma_z0)
-
-		else:
-			raise Exception("Unknown encoder type {}".format(type(self.encoder_z0).__name__))
+		means_z0 = first_point_mu.repeat(n_traj_samples, 1, 1)
+		sigma_z0 = first_point_std.repeat(n_traj_samples, 1, 1)
+		first_point_enc = utils.sample_standard_gaussian(means_z0, sigma_z0)
 		
-		first_point_std = first_point_std.abs()
+		first_point_std = first_point_std.abs().clamp_min(1e-5)
 		assert(torch.sum(first_point_std < 0) == 0.)
 
 		if self.use_poisson_proc:

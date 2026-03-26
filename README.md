@@ -4,6 +4,12 @@ Code for the paper:
 > Yulia Rubanova, Ricky Chen, David Duvenaud. "Latent ODEs for Irregularly-Sampled Time Series" (2019)
 [[arxiv]](https://arxiv.org/abs/1907.03907)
 
+This repository starts from the Rubanova et al. implementation and keeps its training / data pipeline.
+
+We added two custom model variants:
+- `lib/feature_attn_latent_ode.py`: the older variant with feature attention inside the Neural ODE, launched with `--feature-attn-ode`
+- `lib/featurewise_rnn_attn_encoder.py`: the new feature-wise RNN attention encoder with standard latent ODE dynamics, launched with `--featurewise-rnn-attn-ode`
+
 <p align="center">
 <img align="middle" src="./assets/viz.gif" width="800" />
 </p>
@@ -68,6 +74,16 @@ python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --latent-od
 * Latent ODE with RNN encoder (Chen et al, 2018)
 ```
 python3 run_models.py --niters 500 -n 1000 -l 10 --dataset periodic  --latent-ode --z0-encoder rnn
+```
+
+* Older custom feature-attention Neural ODE variant
+```
+python3 run_models.py --dataset hopper --feature-attn-ode --extrap -n 1000
+```
+
+* New custom feature-wise RNN attention encoder
+```
+python3 run_models.py --dataset hopper --featurewise-rnn-attn-ode --extrap -n 1000
 ```
 
 * RNN-VAE

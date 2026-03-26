@@ -13,7 +13,34 @@ import lib.utils as utils
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 # git clone https://github.com/rtqichen/torchdiffeq.git
-from torchdiffeq import odeint as odeint
+try:
+	from torchdiffeq import odeint as odeint
+except ModuleNotFoundError:
+	def odeint(func, y0, time_steps, rtol=None, atol=None, method=None):
+		# Minimal fallback integrator for local runs when torchdiffeq is unavailable.
+		if len(time_steps) == 1:
+			return y0.unsqueeze(0)
+
+		ys = [y0]
+		y = y0
+
+		for i in range(1, len(time_steps)):
+			t0 = time_steps[i - 1]
+			t1 = time_steps[i]
+			dt = t1 - t0
+
+			if method == "euler":
+				y = y + dt * func(t0, y)
+			else:
+				k1 = func(t0, y)
+				k2 = func(t0 + dt / 2, y + dt * k1 / 2)
+				k3 = func(t0 + dt / 2, y + dt * k2 / 2)
+				k4 = func(t1, y + dt * k3)
+				y = y + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+			ys.append(y)
+
+		return torch.stack(ys, dim=0)
 
 #####################################################################################################
 
